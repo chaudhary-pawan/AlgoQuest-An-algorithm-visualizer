@@ -1,297 +1,441 @@
-# sorting_visualizer.py
+import sys
+import time
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox, QSlider,
-    QGraphicsView, QGraphicsScene, QSpinBox, QTextEdit, QSizePolicy
+    QGraphicsView, QGraphicsScene, QFrame, QGraphicsDropShadowEffect, QSizePolicy,
+    QTextEdit, QLineEdit, QScrollArea, QSplitter
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QPen, QFont
-import random
-import time
-import copy
+from PyQt5.QtGui import QBrush, QColor, QPen, QFont, QPainter, QLinearGradient
 
 class SortingVisualizer(QWidget):
     backToHomeSignal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Sorting Visualizer - algoQUIST")
-        self.setGeometry(180, 90, 1000, 760)
+        self.setWindowTitle("Sorting Visualizer - AlgoQUEST")
+        self.resize(1300, 850)
+        
+        # Internal State
+        self.data = []
+        self.steps = []
+        self.step_index = 0
+        self.comparisons = 0
+        self.swaps = 0
+        
+        # Colors (Neon Palette)
+        self.col_bar_default = QColor(80, 250, 220)       # Neon Cyan
+        self.col_bar_highlight = QColor(255, 215, 0)      # Gold (Compare)
+        self.col_bar_swap = QColor(255, 80, 80)           # Neon Red (Swap)
+        self.col_bar_sorted = QColor(100, 255, 100)       # Neon Green (Done)
+        
         self.initUI()
+        self.parse_input_data() # Load initial data
+
+    def paintEvent(self, event):
+        """Draw the Cyber Grid Background"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+
+        # Deep Ocean Gradient
+        gradient = QLinearGradient(0, 0, w, h)
+        gradient.setColorAt(0.0, QColor(15, 32, 39))  
+        gradient.setColorAt(0.5, QColor(20, 40, 50))  
+        gradient.setColorAt(1.0, QColor(30, 60, 70)) 
+        painter.setBrush(QBrush(gradient))
+        painter.setPen(Qt.NoPen)
+        painter.drawRect(self.rect())
+
+        # Matrix Dots
+        dot_pen = QPen(QColor(80, 250, 220, 20)) 
+        dot_pen.setWidth(2)
+        painter.setPen(dot_pen)
+        grid_spacing = 40
+        for x in range(0, w, grid_spacing):
+            for y in range(0, h, grid_spacing):
+                painter.drawPoint(x, y)
 
     def initUI(self):
-        # === Layouts ===
         main_layout = QVBoxLayout()
-        control_layout = QHBoxLayout()
-        algo_layout = QHBoxLayout()
-        viz_layout = QVBoxLayout()
-        summary_layout = QVBoxLayout()
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
 
-        # === Title ===
-        title = QLabel("Sorting Visualizer")
-        title.setFont(QFont("Arial", 20, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        main_layout.addWidget(title)
+        # ==========================================
+        # 1. TOP CONTROL DECK
+        # ==========================================
+        control_deck = QFrame()
+        control_deck.setFixedHeight(80)
+        control_deck.setStyleSheet("""
+            QFrame {
+                background-color: rgba(30, 45, 55, 200);
+                border-radius: 12px;
+                border: 1px solid rgba(80, 250, 220, 50);
+            }
+        """)
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 100))
+        control_deck.setGraphicsEffect(shadow)
 
-        # === Algorithm selection ===
-        algo_label = QLabel("Algorithm:")
+        deck_layout = QHBoxLayout(control_deck)
+        deck_layout.setContentsMargins(15, 10, 15, 10)
+        deck_layout.setSpacing(15)
+
+        # Back Button
+        self.back_btn = QPushButton("← Back")
+        self.back_btn.setFixedSize(90, 35)
+        self.style_button(self.back_btn, is_secondary=True)
+        self.back_btn.clicked.connect(self.go_back)
+        deck_layout.addWidget(self.back_btn)
+
+        # Algorithm Combo
         self.algo_combo = QComboBox()
         self.algo_combo.addItems(["Bubble Sort", "Selection Sort", "Insertion Sort", "Quick Sort", "Merge Sort"])
-        self.algo_combo.setFixedWidth(160)
-        algo_layout.addWidget(algo_label)
-        algo_layout.addWidget(self.algo_combo)
+        self.algo_combo.setFixedSize(160, 35)
+        self.style_combo(self.algo_combo)
+        self.algo_combo.currentTextChanged.connect(self.update_info_panel)
+        deck_layout.addWidget(self.algo_combo)
 
-        # === Array size slider + spinbox ===
-        size_label = QLabel("Array size:")
-        self.size_spin = QSpinBox()
-        self.size_spin.setRange(5, 40)
-        self.size_spin.setValue(20)
-        self.size_spin.setFixedWidth(70)
+        # Custom Input Field
+        lbl_input = QLabel("Input (comma separated):")
+        lbl_input.setStyleSheet("color: #aabdc9; font-weight: bold; background: transparent; border: none;")
+        deck_layout.addWidget(lbl_input)
 
-        self.size_slider = QSlider(Qt.Horizontal)
-        self.size_slider.setRange(5, 40)
-        self.size_slider.setValue(20)
-        self.size_slider.setFixedWidth(220)
-        self.size_slider.valueChanged.connect(self.size_spin.setValue)
-        self.size_spin.valueChanged.connect(self.size_slider.setValue)
+        self.input_field = QLineEdit()
+        self.input_field.setPlaceholderText("e.g. 50, 10, 25, 5")
+        self.input_field.setText("45, 12, 88, 32, 56, 7, 23, 90, 15, 67, 34") # Default
+        self.input_field.setStyleSheet("""
+            QLineEdit {
+                background-color: rgba(20, 30, 40, 200);
+                color: #ffffff;
+                border: 1px solid #57606f;
+                border-radius: 8px;
+                padding: 5px;
+                font-family: 'Consolas';
+            }
+        """)
+        self.input_field.textChanged.connect(self.parse_input_data)
+        deck_layout.addWidget(self.input_field, stretch=1)
 
-        size_layout = QHBoxLayout()
-        size_layout.addWidget(size_label)
-        size_layout.addWidget(self.size_slider)
-        size_layout.addWidget(self.size_spin)
-        algo_layout.addLayout(size_layout)
+        # Speed Slider
+        lbl_speed = QLabel("Speed:")
+        lbl_speed.setStyleSheet("color: #aabdc9; font-weight: bold; background: transparent; border: none;")
+        deck_layout.addWidget(lbl_speed)
 
-        control_layout.addLayout(algo_layout)
-
-        # === Generate / Start / Reset buttons ===
-        self.generate_btn = QPushButton("Generate Random Array")
-        self.generate_btn.clicked.connect(self.generate_array)
-        self.start_btn = QPushButton("Start Sorting")
-        self.start_btn.clicked.connect(self.start_sorting)
-        self.reset_btn = QPushButton("Reset")
-        self.reset_btn.clicked.connect(self.reset_all)
-        control_layout.addWidget(self.generate_btn)
-        control_layout.addWidget(self.start_btn)
-        control_layout.addWidget(self.reset_btn)
-
-        # === Speed control ===
-        speed_label = QLabel("Speed:")
         self.speed_slider = QSlider(Qt.Horizontal)
-        self.speed_slider.setRange(1, 1000)   # maps to timer interval ms (fast -> small ms)
-        self.speed_slider.setValue(200)
-        self.speed_slider.setFixedWidth(200)
-        speed_layout = QHBoxLayout()
-        speed_layout.addWidget(speed_label)
-        speed_layout.addWidget(self.speed_slider)
-        control_layout.addLayout(speed_layout)
+        self.speed_slider.setRange(1, 100)
+        self.speed_slider.setValue(50)
+        self.speed_slider.setFixedWidth(120)
+        self.style_slider(self.speed_slider)
+        # Update timer interval dynamically without resetting
+        self.speed_slider.valueChanged.connect(self.update_speed)
+        deck_layout.addWidget(self.speed_slider)
 
-        # === Back button ===
-        self.back_btn = QPushButton("← Back to Home")
-        self.back_btn.clicked.connect(self.go_back)
-        control_layout.addWidget(self.back_btn)
+        # Start/Reset Buttons
+        self.reset_btn = QPushButton("Reset")
+        self.style_button(self.reset_btn, is_secondary=True)
+        self.reset_btn.clicked.connect(self.reset_viz)
+        deck_layout.addWidget(self.reset_btn)
 
-        main_layout.addLayout(control_layout)
+        self.start_btn = QPushButton("Start Sorting")
+        self.style_button(self.start_btn, is_main=True)
+        self.start_btn.clicked.connect(self.start_sorting)
+        deck_layout.addWidget(self.start_btn)
 
-        # === Visualization area (QGraphicsScene) ===
+        main_layout.addWidget(control_deck)
+
+        # ==========================================
+        # 2. VISUALIZATION AREA (Middle)
+        # ==========================================
         self.scene = QGraphicsScene()
         self.view = QGraphicsView(self.scene)
-        self.view.setMinimumHeight(420)
+        self.view.setRenderHint(QPainter.Antialiasing)
+        self.view.setStyleSheet("background: transparent; border: none;")
         self.view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        viz_layout.addWidget(self.view)
+        self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        
+        main_layout.addWidget(self.view, stretch=4)
 
-        # === Info & Metrics area ===
-        info_metrics_layout = QHBoxLayout()
+        # ==========================================
+        # 3. DETAILED INFO PANEL (Bottom - Scrollable)
+        # ==========================================
+        # Using a ScrollArea to allow extensive content
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFixedHeight(300) # Fixed height for bottom panel
+        scroll_area.setStyleSheet("""
+            QScrollArea { background: transparent; border: none; }
+            QScrollBar:vertical {
+                background: #1e272e; width: 10px; margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background: #80fac0; min-height: 20px; border-radius: 5px;
+            }
+        """)
 
-        # Info box for explanation and complexity
-        self.info_box = QTextEdit()
-        self.info_box.setReadOnly(True)
-        self.info_box.setFixedHeight(160)
-        self.info_box.setFont(QFont("Arial", 11))
-        info_metrics_layout.addWidget(self.info_box, 60)
+        # Container inside ScrollArea
+        self.info_container = QWidget()
+        self.info_container.setStyleSheet("background-color: rgba(20, 30, 40, 180); border-radius: 10px;")
+        info_layout = QVBoxLayout(self.info_container)
+        info_layout.setContentsMargins(20, 20, 20, 20)
+        info_layout.setSpacing(20)
 
-        # Metrics panel
-        metrics_panel = QVBoxLayout()
-        self.comparisons_label = QLabel("Comparisons: 0")
-        self.swaps_label = QLabel("Swaps/Assignments: 0")
-        self.time_label = QLabel("Elapsed (simulated): 0.00s")
-        for lbl in (self.comparisons_label, self.swaps_label, self.time_label):
-            lbl.setFont(QFont("Arial", 11))
-            metrics_panel.addWidget(lbl)
-        metrics_panel.addStretch()
-        info_metrics_layout.addLayout(metrics_panel, 40)
+        # --- Section A: Live Metrics (Top of Info) ---
+        metrics_layout = QHBoxLayout()
+        self.lbl_comps = QLabel("Comparisons: 0")
+        self.lbl_swaps = QLabel("Swaps: 0")
+        self.lbl_status = QLabel("Status: Idle")
+        
+        for lbl in [self.lbl_comps, self.lbl_swaps, self.lbl_status]:
+            lbl.setFont(QFont("Segoe UI", 12, QFont.Bold))
+            lbl.setStyleSheet("color: #80fac0; background: transparent;")
+            metrics_layout.addWidget(lbl)
+        metrics_layout.addStretch()
+        info_layout.addLayout(metrics_layout)
 
-        viz_layout.addLayout(info_metrics_layout)
-        main_layout.addLayout(viz_layout)
+        # Line Separator
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setStyleSheet("color: #57606f;")
+        info_layout.addWidget(line)
 
-        # === Summary: best/avg/worst explanation (visible after execution) ===
-        summary_title = QLabel("Execution Summary (shown after sorting)")
-        summary_title.setFont(QFont("Arial", 12, QFont.Bold))
-        summary_layout.addWidget(summary_title)
+        # --- Section B: Theory & Code (Split horizontally) ---
+        content_splitter = QHBoxLayout()
 
-        self.summary_text = QTextEdit()
-        self.summary_text.setReadOnly(True)
-        self.summary_text.setFont(QFont("Arial", 11))
-        self.summary_text.setFixedHeight(150)
-        summary_layout.addWidget(self.summary_text)
+        # Left: Theory
+        self.theory_box = QTextEdit()
+        self.theory_box.setReadOnly(True)
+        self.theory_box.setStyleSheet("""
+            background: transparent; border: none; color: #d0e6f0; font-family: 'Segoe UI'; font-size: 14px;
+        """)
+        self.theory_box.setMaximumHeight(200)
+        content_splitter.addWidget(self.theory_box, stretch=1)
 
-        main_layout.addLayout(summary_layout)
+        # Right: Pseudo Code
+        self.code_box = QTextEdit()
+        self.code_box.setReadOnly(True)
+        self.code_box.setStyleSheet("""
+            background-color: #1e1e1e; 
+            border: 1px solid #333; 
+            border-radius: 5px;
+            color: #dcdde1; 
+            font-family: 'Consolas'; 
+            font-size: 13px;
+            padding: 10px;
+        """)
+        self.code_box.setMaximumHeight(200)
+        content_splitter.addWidget(self.code_box, stretch=1)
+
+        info_layout.addLayout(content_splitter)
+        
+        scroll_area.setWidget(self.info_container)
+        main_layout.addWidget(scroll_area, stretch=2)
+
         self.setLayout(main_layout)
 
-        # === Internal state ===
-        self.data = []
-        self.steps = []               # list of tuples (arr_copy, highlight_indices, comps, swaps)
-        self.step_index = 0
+        # Timer setup
         self.timer = QTimer()
         self.timer.timeout.connect(self.play_step)
-        self.start_time = 0.0
+        
+        # Initialize Info
+        self.update_info_panel()
 
-        # Prepare default array
-        self.generate_array()
+    # ==================== DATA HANDLING ====================
+    def parse_input_data(self):
+        """Reads input field, cleans data, and updates bar chart immediately."""
+        if self.timer.isActive(): return # Don't update while running
 
-        # Show info for selected algorithm
-        self.algo_combo.currentTextChanged.connect(self.show_algorithm_info)
-        self.show_algorithm_info()
+        text = self.input_field.text()
+        try:
+            # Split by comma, strip spaces, convert to int
+            self.data = [int(x.strip()) for x in text.split(',') if x.strip().isdigit()]
+        except ValueError:
+            self.data = [] # Invalid input
 
-    # ---------------- UI & control methods ----------------
-
-    def generate_array(self):
-        n = self.size_spin.value()
-        # generate random numbers within range so bars fit nicely
-        self.data = [random.randint(10, 100) for _ in range(n)]
-        self.draw_bars()
-        # reset metrics & steps
+        # Reset state
         self.steps = []
         self.step_index = 0
         self.comparisons = 0
         self.swaps = 0
-        self.update_metrics()
-        self.summary_text.clear()
+        self.lbl_comps.setText("Comparisons: 0")
+        self.lbl_swaps.setText("Swaps: 0")
+        self.lbl_status.setText("Status: Ready")
+        
+        self.draw_bars()
 
-    def reset_all(self):
+    def update_speed(self):
+        """Updates timer interval on the fly."""
+        if self.timer.isActive():
+            interval = max(1, 101 - self.speed_slider.value()) * 2
+            self.timer.setInterval(interval)
+
+    def reset_viz(self):
         self.timer.stop()
-        self.generate_array()
-        self.info_box.clear()
-        self.summary_text.clear()
+        self.parse_input_data()
+        self.start_btn.setEnabled(True)
+        self.input_field.setEnabled(True)
 
-    def draw_bars(self, highlight=None):
-        """Draw bars according to self.data. 'highlight' is a list of indices to color."""
-        if highlight is None:
-            highlight = []
+    def draw_bars(self, highlight=None, sorted_indices=None):
+        if highlight is None: highlight = []
+        if sorted_indices is None: sorted_indices = []
+        
         self.scene.clear()
         n = len(self.data)
-        width = max(6, int(self.view.width() / (n + 1)))  # adaptive bar width
-        spacing = 4
-        maxh = 360
+        if n == 0: return
+
+        # Dimensions
+        view_w = self.view.width() - 20 
+        view_h = self.view.height() - 20
+        # Calculate width dynamically based on count
+        bar_w = min(50, max(5, view_w / n)) 
+        spacing = 2
+        total_w = n * (bar_w + spacing)
+        start_x = (view_w - total_w) / 2 # Center the graph
+
         max_val = max(self.data) if self.data else 1
+        
         for i, val in enumerate(self.data):
-            # scale height
-            h = int((val / max_val) * maxh)
-            x = i * (width + spacing)
-            y = maxh - h
-            color = QColor(100, 149, 237)  # default blue
-            if i in highlight:
-                color = QColor(255, 99, 71)  # red highlight
-            rect = self.scene.addRect(x, y, width, h, QPen(Qt.black), QBrush(color))
-            # draw value label if few elements
-            if n <= 20:
-                self.scene.addText(str(val)).setPos(x, y - 18)
-        # force update
-        self.view.setSceneRect(0, 0, max(800, n * (width + spacing)), maxh + 50)
-        self.view.update()
+            h = (val / max_val) * (view_h * 0.9) 
+            x = start_x + i * (bar_w + spacing)
+            y = view_h - h
+            
+            # Color Logic
+            color = self.col_bar_default
+            if i in sorted_indices:
+                color = self.col_bar_sorted
+            elif i in highlight:
+                color = self.col_bar_swap 
+            
+            # Draw Bar
+            rect = self.scene.addRect(x, y, bar_w, h)
+            rect.setPen(QPen(Qt.NoPen))
+            rect.setBrush(QBrush(color))
+            
+            # Text (only if bars are wide enough)
+            if bar_w > 20:
+                text = self.scene.addText(str(val))
+                text.setDefaultTextColor(QColor("white"))
+                font = QFont("Segoe UI", 8)
+                text.setFont(font)
+                # Center text
+                txt_w = text.boundingRect().width()
+                text.setPos(x + (bar_w - txt_w)/2, y - 20)
 
-    # ---------------- Sorting orchestration ----------------
-
+    # ==================== SORTING EXECUTION ====================
     def start_sorting(self):
-        if self.timer.isActive():
-            return  # ignore if already running
+        if self.timer.isActive(): return
+        if not self.data: return
+        
+        # Lock Input
+        self.input_field.setEnabled(False)
+        self.start_btn.setEnabled(False)
+        self.lbl_status.setText("Status: Sorting...")
+
         algo = self.algo_combo.currentText()
-        # prepare steps anew from current self.data (do not modify displayed array until animation)
-        self.steps = []
-        self.comparisons = 0
-        self.swaps = 0
         arr_copy = self.data.copy()
-
-        if algo == "Bubble Sort":
-            self.steps = self._bubble_steps(arr_copy)
-        elif algo == "Selection Sort":
-            self.steps = self._selection_steps(arr_copy)
-        elif algo == "Insertion Sort":
-            self.steps = self._insertion_steps(arr_copy)
-        elif algo == "Quick Sort":
-            self.steps = self._quick_steps(arr_copy)
-        elif algo == "Merge Sort":
-            self.steps = self._merge_steps(arr_copy)
-        else:
-            return
-
-        if not self.steps:
-            return
+        
+        # Generate Steps
+        if algo == "Bubble Sort": self.steps = self._bubble_steps(arr_copy)
+        elif algo == "Selection Sort": self.steps = self._selection_steps(arr_copy)
+        elif algo == "Insertion Sort": self.steps = self._insertion_steps(arr_copy)
+        elif algo == "Quick Sort": self.steps = self._quick_steps(arr_copy)
+        elif algo == "Merge Sort": self.steps = self._merge_steps(arr_copy)
 
         self.step_index = 0
-        self.start_time = time.time()
-        interval = max(10, self.speed_slider.value())  # ms
+        interval = max(1, 101 - self.speed_slider.value()) * 2
         self.timer.start(interval)
 
     def play_step(self):
         if self.step_index >= len(self.steps):
             self.timer.stop()
-            elapsed = time.time() - self.start_time
-            self.time_label.setText(f"Elapsed (simulated): {elapsed:.3f}s")
-            # final draw to ensure sorted array shown
-            if self.steps:
-                final_arr = self.steps[-1][0]
-                self.data = final_arr.copy()
-                self.draw_bars(highlight=[])
-            # show summary and final metrics
-            self.update_metrics(final=True)
-            self.show_execution_summary()
+            self.lbl_status.setText("Status: Completed")
+            self.draw_bars(sorted_indices=list(range(len(self.data)))) # All Green
+            self.show_final_analysis()
             return
 
+        # Unpack Step
         arr_state, highlight, comps, swaps = self.steps[self.step_index]
-        # update running comps/swaps
+        self.data = arr_state
         self.comparisons = comps
         self.swaps = swaps
-        # set data shown to current arr_state
-        self.data = arr_state.copy()
-        self.draw_bars(highlight=highlight)
-        self.update_metrics()
+        
+        # Update UI
+        self.lbl_comps.setText(f"Comparisons: {comps}")
+        self.lbl_swaps.setText(f"Swaps: {swaps}")
+        
+        self.draw_bars(highlight)
         self.step_index += 1
 
-    def update_metrics(self, final=False):
-        self.comparisons_label.setText(f"Comparisons: {self.comparisons}")
-        self.swaps_label.setText(f"Swaps/Assignments: {self.swaps}")
-        if final:
-            # keep elapsed time already set in play_step
-            pass
+    def show_final_analysis(self):
+        # Calculate complexity based on N and Comparisons
+        n = len(self.data)
+        comps = self.comparisons
+        algo = self.algo_combo.currentText()
+        
+        analysis = f"\n[FINAL ANALYSIS]\nArray Size (N): {n}\nTotal Comparisons: {comps}\n"
+        
+        if algo == "Bubble Sort":
+            if comps <= n: analysis += "Result: Best Case (O(n)) - Array was nearly sorted."
+            else: analysis += "Result: Average/Worst Case (O(n²))"
+        elif algo in ["Selection Sort", "Insertion Sort"]:
+             analysis += "Result: Quadratic Time (O(n²)) behavior observed."
+        else:
+             analysis += "Result: Log-Linear Time (O(n log n)) efficient behavior."
+             
+        # Append to Theory Box
+        current_text = self.theory_box.toPlainText()
+        self.theory_box.setPlainText(current_text + "\n" + analysis)
+        # Scroll to bottom
+        sb = self.theory_box.verticalScrollBar()
+        sb.setValue(sb.maximum())
 
-    def go_back(self):
-        # signal main to show home and close this window
-        self.backToHomeSignal.emit()
-        self.close()
+    # ==================== CONTENT MANAGER ====================
+    def update_info_panel(self):
+        algo = self.algo_combo.currentText()
+        
+        # Theory Content
+        theory = {
+            "Bubble Sort": "<b>Bubble Sort</b><br>Repeatedly steps through the list, compares adjacent elements and swaps them if they are in the wrong order.<br><br><b>Complexity:</b><br>• Best: O(n)<br>• Average: O(n²)<br>• Worst: O(n²)<br>• Space: O(1)",
+            "Selection Sort": "<b>Selection Sort</b><br>Divides the input list into two parts: a sorted sublist and an unsorted sublist. Repeatedly selects the smallest element from unsorted part.<br><br><b>Complexity:</b><br>• Time: O(n²) (Always)<br>• Space: O(1)",
+            "Insertion Sort": "<b>Insertion Sort</b><br>Builds the final sorted array one item at a time. Efficient for small data sets or nearly sorted data.<br><br><b>Complexity:</b><br>• Best: O(n)<br>• Worst: O(n²)<br>• Space: O(1)",
+            "Quick Sort": "<b>Quick Sort</b><br>Divide and Conquer. Picks a 'pivot' and partitions the array into elements less than pivot and greater than pivot.<br><br><b>Complexity:</b><br>• Best/Avg: O(n log n)<br>• Worst: O(n²)<br>• Space: O(log n)",
+            "Merge Sort": "<b>Merge Sort</b><br>Divide and Conquer. Recursively divides array into halves, sorts them, and then merges them back.<br><br><b>Complexity:</b><br>• Time: O(n log n) (Always)<br>• Space: O(n)"
+        }
 
-    # ---------------- Algorithms that produce step lists ----------------
-    # Each step is (arr_copy, highlight_indices, comparisons_so_far, swaps_so_far)
+        # Pseudo Code
+        codes = {
+            "Bubble Sort": "procedure bubbleSort(A: list of items)\n  n = length(A)\n  repeat\n    swapped = false\n    for i = 1 to n-1 inclusive do\n      if A[i-1] > A[i] then\n        swap(A[i-1], A[i])\n        swapped = true\n      end if\n    end for\n  until not swapped\nend procedure",
+            "Selection Sort": "procedure selectionSort(A)\n  for i = 0 to n - 2 do\n    min_idx = i\n    for j = i + 1 to n - 1 do\n      if A[j] < A[min_idx] then\n        min_idx = j\n      end if\n    end for\n    swap(A[i], A[min_idx])\n  end for\nend procedure",
+            "Insertion Sort": "procedure insertionSort(A)\n  for i = 1 to n - 1 do\n    key = A[i]\n    j = i - 1\n    while j >= 0 and A[j] > key do\n      A[j + 1] = A[j]\n      j = j - 1\n    end while\n    A[j + 1] = key\n  end for\nend procedure",
+            "Quick Sort": "procedure quickSort(A, low, high)\n  if low < high then\n    p = partition(A, low, high)\n    quickSort(A, low, p - 1)\n    quickSort(A, p + 1, high)\n  end if\nend procedure",
+            "Merge Sort": "procedure mergeSort(A)\n  if length(A) <= 1 return A\n  mid = length(A) / 2\n  left = mergeSort(A[0..mid])\n  right = mergeSort(A[mid..end])\n  return merge(left, right)\nend procedure"
+        }
 
+        self.theory_box.setHtml(theory.get(algo, ""))
+        self.code_box.setPlainText(codes.get(algo, ""))
+
+    # ==================== ALGORITHMS (Generators) ====================
+    # Each returns a list of tuples: (array_state, highlight_indices, comparisons, swaps)
+    
     def _bubble_steps(self, arr):
         steps = []
-        comps = 0
-        swaps = 0
+        comps, swaps = 0, 0
         n = len(arr)
         for i in range(n):
             for j in range(0, n - i - 1):
                 comps += 1
-                steps.append((arr.copy(), [j, j + 1], comps, swaps))
+                steps.append((arr.copy(), [j, j+1], comps, swaps))
                 if arr[j] > arr[j + 1]:
                     arr[j], arr[j + 1] = arr[j + 1], arr[j]
                     swaps += 1
-                    steps.append((arr.copy(), [j, j + 1], comps, swaps))
-        # final state
-        steps.append((arr.copy(), [], comps, swaps))
+                    steps.append((arr.copy(), [j, j+1], comps, swaps))
         return steps
 
     def _selection_steps(self, arr):
         steps = []
-        comps = 0
-        swaps = 0
+        comps, swaps = 0, 0
         n = len(arr)
         for i in range(n):
             min_idx = i
@@ -300,49 +444,38 @@ class SortingVisualizer(QWidget):
                 steps.append((arr.copy(), [min_idx, j], comps, swaps))
                 if arr[j] < arr[min_idx]:
                     min_idx = j
-                    # highlight new min as change (no swap yet)
-                    steps.append((arr.copy(), [min_idx], comps, swaps))
-            # swap minimum into position i
             if min_idx != i:
                 arr[i], arr[min_idx] = arr[min_idx], arr[i]
                 swaps += 1
                 steps.append((arr.copy(), [i, min_idx], comps, swaps))
-        steps.append((arr.copy(), [], comps, swaps))
         return steps
 
     def _insertion_steps(self, arr):
         steps = []
-        comps = 0
-        swaps = 0  # here count assignments/shifts as swaps for demonstration
+        comps, swaps = 0, 0
         n = len(arr)
         for i in range(1, n):
             key = arr[i]
             j = i - 1
-            # show initial key
             steps.append((arr.copy(), [i], comps, swaps))
             while j >= 0:
                 comps += 1
-                steps.append((arr.copy(), [j, j + 1], comps, swaps))
                 if arr[j] > key:
                     arr[j + 1] = arr[j]
                     swaps += 1
-                    steps.append((arr.copy(), [j, j + 1], comps, swaps))
+                    steps.append((arr.copy(), [j, j+1], comps, swaps))
                     j -= 1
                 else:
                     break
             arr[j + 1] = key
-            swaps += 1
-            steps.append((arr.copy(), [j + 1], comps, swaps))
-        steps.append((arr.copy(), [], comps, swaps))
+            steps.append((arr.copy(), [j+1], comps, swaps))
         return steps
 
     def _quick_steps(self, arr):
         steps = []
-        comps = 0
-        swaps = 0
-
+        comps, swaps = 0, 0
         def partition(a, low, high):
-            nonlocal comps, swaps, steps
+            nonlocal comps, swaps
             pivot = a[high]
             i = low - 1
             for j in range(low, high):
@@ -357,24 +490,21 @@ class SortingVisualizer(QWidget):
             swaps += 1
             steps.append((a.copy(), [i + 1, high], comps, swaps))
             return i + 1
-
+        
         def quicksort(a, low, high):
             if low < high:
-                p = partition(a, low, high)
-                quicksort(a, low, p - 1)
-                quicksort(a, p + 1, high)
-
+                pi = partition(a, low, high)
+                quicksort(a, low, pi - 1)
+                quicksort(a, pi + 1, high)
+        
         quicksort(arr, 0, len(arr) - 1)
-        steps.append((arr.copy(), [], comps, swaps))
         return steps
 
     def _merge_steps(self, arr):
         steps = []
-        comps = 0
-        swaps = 0  # count assignments into main array as swaps/assignments
-
+        comps, swaps = 0, 0
         def merge(a, l, m, r):
-            nonlocal comps, swaps, steps
+            nonlocal comps, swaps
             L = a[l:m+1]
             R = a[m+1:r+1]
             i = j = 0
@@ -385,12 +515,10 @@ class SortingVisualizer(QWidget):
                 if L[i] <= R[j]:
                     a[k] = L[i]
                     i += 1
-                    swaps += 1
                 else:
                     a[k] = R[j]
                     j += 1
-                    swaps += 1
-                steps.append((a.copy(), [k], comps, swaps))
+                swaps += 1 # Assignment
                 k += 1
             while i < len(L):
                 a[k] = L[i]
@@ -404,103 +532,54 @@ class SortingVisualizer(QWidget):
                 k += 1
                 swaps += 1
                 steps.append((a.copy(), [k-1], comps, swaps))
-
+                
         def mergesort(a, l, r):
             if l < r:
                 m = (l + r) // 2
                 mergesort(a, l, m)
                 mergesort(a, m+1, r)
                 merge(a, l, m, r)
-
+                
         mergesort(arr, 0, len(arr) - 1)
-        steps.append((arr.copy(), [], comps, swaps))
         return steps
 
-    # ---------------- Execution summary (post-run) ----------------
+    # ==================== HELPERS ====================
+    def style_button(self, btn, is_main=False, is_secondary=False):
+        base_style = """
+            QPushButton { font-family: 'Segoe UI'; font-weight: bold; font-size: 13px; border-radius: 8px; padding: 5px; }
+        """
+        if is_main:
+            btn.setStyleSheet(base_style + """
+                QPushButton { background-color: #80fac0; color: #1a1a1a; border: none; }
+                QPushButton:hover { background-color: #a0fcd0; }
+                QPushButton:pressed { background-color: #60daa0; }
+            """)
+        elif is_secondary:
+             btn.setStyleSheet(base_style + """
+                QPushButton { background-color: rgba(255, 255, 255, 10); color: #80fac0; border: 1px solid #80fac0; }
+                QPushButton:hover { background-color: rgba(80, 250, 220, 20); }
+            """)
 
-    def show_algorithm_info(self):
-        algo = self.algo_combo.currentText()
-        text = ""
-        if algo == "Bubble Sort":
-            text = ("Bubble Sort:\n"
-                    "- Repeatedly compares adjacent items and swaps them if out of order.\n"
-                    "- Best case: O(n) (when array already sorted, one pass with no swaps)\n"
-                    "- Average/Worst: O(n²) (nested passes). Space: O(1). Stable.\n")
-        elif algo == "Selection Sort":
-            text = ("Selection Sort:\n"
-                    "- Finds the minimum element and places it each time at current index.\n"
-                    "- Best/Average/Worst: O(n²) (comparisons always ~n²). Space: O(1). Not stable.\n")
-        elif algo == "Insertion Sort":
-            text = ("Insertion Sort:\n"
-                    "- Builds sorted portion by inserting next element at correct position.\n"
-                    "- Best: O(n) (already sorted). Average/Worst: O(n²). Space: O(1). Stable.\n")
-        elif algo == "Quick Sort":
-            text = ("Quick Sort:\n"
-                    "- Picks pivot, partitions array into elements < pivot and > pivot, then recurses.\n"
-                    "- Best/Average: O(n log n). Worst: O(n²) (bad pivots). Space: O(log n) average. Not stable.\n")
-        elif algo == "Merge Sort":
-            text = ("Merge Sort:\n"
-                    "- Recursively divides and merges sorted halves.\n"
-                    "- Best/Average/Worst: O(n log n). Space: O(n). Stable.\n")
-        self.info_box.setPlainText(text)
+    def style_combo(self, combo):
+        combo.setStyleSheet("""
+            QComboBox { background-color: rgba(20, 30, 40, 200); color: #ffffff; border: 1px solid #57606f; border-radius: 8px; padding-left: 10px; font-family: 'Segoe UI'; }
+            QComboBox QAbstractItemView { background-color: #2f3640; color: white; selection-background-color: #80fac0; selection-color: black; }
+        """)
 
-    def show_execution_summary(self):
-        algo = self.algo_combo.currentText()
-        comps = self.comparisons
-        swaps = self.swaps
-        # time label already set
-        best, avg, worst = "", "", ""
-        reason_best, reason_avg, reason_worst = "", "", "",
+    def style_slider(self, slider):
+        slider.setStyleSheet("""
+            QSlider::groove:horizontal { border: 1px solid #3d3d3d; height: 6px; background: #202020; border-radius: 3px; }
+            QSlider::handle:horizontal { background: #80fac0; width: 14px; height: 14px; margin: -5px 0; border-radius: 7px; }
+        """)
 
-        if algo == "Bubble Sort":
-            best = "O(n) — already sorted; only single pass with no swaps."
-            avg = worst = "O(n²) — nested passes over the array (many comparisons & swaps)."
-            reason_best = "When array is sorted bubble detects no swaps and stops early (depending on implementation)."
-            reason_avg = "Elements must move many positions requiring many swaps; compares adjacent pairs in nested loops."
-        elif algo == "Selection Sort":
-            best = avg = worst = "O(n²) — selection always searches min across remaining elements."
-            reason_best = reason_avg = reason_worst = "Selection does full scans for minimum each iteration; swaps minimal but comparisons remain ~n²."
-        elif algo == "Insertion Sort":
-            best = "O(n) — already sorted, just linear pass."
-            avg = worst = "O(n²) — many shifts when element needs to be moved left repeatedly."
-            reason_best = "Each new element finds correct spot quickly if already sorted."
-            reason_avg = "Needs shifting of elements to insert at correct place; cost grows quadratically."
-        elif algo == "Quick Sort":
-            best = "O(n log n) average — balanced partitions."
-            avg = "O(n log n) — expected with random pivots."
-            worst = "O(n²) — degenerate partitions (already sorted pivot selection)."
-            reason_best = "Good pivots split array evenly leading to log n depth recursion."
-            reason_avg = "Random pivot choices tend to split reasonably well."
-            reason_worst = "Poor pivot choices produce highly unbalanced partitions making recursion depth O(n)."
-        elif algo == "Merge Sort":
-            best = avg = worst = "O(n log n) — divides and merges consistently."
-            reason_best = reason_avg = reason_worst = "Always divides array in halves, merging cost O(n) at each level; depth log n."
+    def go_back(self):
+        self.timer.stop()
+        self.backToHomeSignal.emit()
+        self.close()
 
-        summary = f"Algorithm: {algo}\n\n"
-        summary += f"Comparisons performed: {comps}\n"
-        summary += f"Swaps/Assignments performed: {swaps}\n\n"
-        summary += "Complexities:\n"
-        if algo == "Bubble Sort":
-            summary += f"- Best: {best}\n- Average: {avg}\n- Worst: {worst}\n"
-        elif algo == "Selection Sort":
-            summary += f"- Best/Average/Worst: {best}\n"
-        elif algo == "Insertion Sort":
-            summary += f"- Best: {best}\n- Average: {avg}\n- Worst: {worst}\n"
-        elif algo == "Quick Sort":
-            summary += f"- Best: {best}\n- Average: {avg}\n- Worst: {worst}\n"
-        elif algo == "Merge Sort":
-            summary += f"- Best/Average/Worst: {best}\n"
-        summary += "\nWhy (short explanation):\n"
-        if algo == "Bubble Sort":
-            summary += reason_best + "\n" + reason_avg
-        elif algo == "Selection Sort":
-            summary += reason_best
-        elif algo == "Insertion Sort":
-            summary += reason_best + "\n" + reason_avg
-        elif algo == "Quick Sort":
-            summary += reason_best + "\n" + reason_worst
-        elif algo == "Merge Sort":
-            summary += reason_best
-
-        self.summary_text.setPlainText(summary)
-
+if __name__ == "__main__":
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication(sys.argv)
+    window = SortingVisualizer()
+    window.show()
+    sys.exit(app.exec_())
