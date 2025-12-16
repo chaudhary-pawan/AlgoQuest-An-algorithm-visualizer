@@ -1,347 +1,259 @@
-# ml_naive_bayes_visualizer.py
-# Simple interactive Gaussian Naive Bayes visualizer (2 continuous features)
-#
-# - Left-click on plot to add point with selected class (0/1)
-# - Right-click near a point to remove it
-# - Click "Train" to compute class priors, means, stds
-# - Click on the plot (middle/right) or enter coordinates and press 'Predict' to see posterior probabilities
-# - Shows per-class histograms with Gaussian PDFs overlayed
-#
-# Exposes class: NaiveBayesVisualizer
-# Emits: backToHomeSignal when back button pressed
+import sys
+import math
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox,
-    QLineEdit, QSizePolicy, QMessageBox
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QSlider, QSpinBox,
+    QTextEdit, QProgressBar, QCheckBox
 )
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-import matplotlib.pyplot as plt
-import numpy as np
-import math
-import random
-
-random.seed(1)
-np.random.seed(1)
 
 
-def gaussian_pdf(x, mu, sigma):
-    eps = 1e-9
-    sigma = max(sigma, eps)
-    coef = 1.0 / (math.sqrt(2 * math.pi) * sigma)
-    exp = math.exp(-0.5 * ((x - mu) / sigma) ** 2)
-    return coef * exp
+# =========================================================
+# NAIVE BAYES LOGIC (EDUCATIONAL DEMO)
+# =========================================================
+class NaiveBayesModel:
+    def __init__(self):
+        # Likelihoods (fixed demo probabilities)
+        self.probs = {
+            "free":     {"spam": 0.8, "ham": 0.1},
+            "money":    {"spam": 0.7, "ham": 0.05},
+            "meeting":  {"spam": 0.1, "ham": 0.8},
+        }
+
+    def compute(self, counts, prior_spam, laplace=False):
+        prior_ham = 1 - prior_spam
+
+        spam_score = prior_spam
+        ham_score = prior_ham
+
+        log = []
+        log.append("Step 1: Prior Probabilities")
+        log.append(f"P(Spam) = {prior_spam:.2f}")
+        log.append(f"P(Ham) = {prior_ham:.2f}\n")
+
+        log.append("Step 2: Likelihoods with word counts")
+
+        for word, count in counts.items():
+            if laplace:
+                ps = (self.probs[word]["spam"] + 1) / 2
+                ph = (self.probs[word]["ham"] + 1) / 2
+            else:
+                ps = self.probs[word]["spam"]
+                ph = self.probs[word]["ham"]
+
+            log.append(f"P({word}|Spam)^{count} = {ps}^{count}")
+            log.append(f"P({word}|Ham)^{count} = {ph}^{count}")
+
+            spam_score *= ps ** count
+            ham_score *= ph ** count
+
+        log.append("\nStep 3: Unnormalized Scores")
+        log.append(f"Spam Score = {spam_score:.6e}")
+        log.append(f"Ham Score = {ham_score:.6e}")
+
+        total = spam_score + ham_score + 1e-12
+        p_spam = spam_score / total
+        p_ham = ham_score / total
+
+        # UI realism clipping
+        p_spam = min(max(p_spam, 0.001), 0.999)
+        p_ham = 1 - p_spam
+
+        log.append("\nStep 4: Normalization")
+        log.append(f"P(Spam | Email) = {p_spam:.3f}")
+        log.append(f"P(Ham | Email) = {p_ham:.3f}")
+
+        return p_spam, p_ham, "\n".join(log)
 
 
+# =========================================================
+# UI
+# =========================================================
 class NaiveBayesVisualizer(QWidget):
-    backToHomeSignal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Naive Bayes Visualizer")
-        self.setGeometry(140, 80, 1100, 700)
+        self.setWindowTitle("AlgoQUEST – Naive Bayes (Spam / Ham)")
+        self.resize(1400, 800)
 
-        # data: list of (x, y, label)
-        self.data = []
-        self._init_demo_data()
+        self.model = NaiveBayesModel()
 
-        # model params (for each class 0/1): prior, mean (2-d), std (2-d)
-        self.model = {
-            0: {"prior": 0.5, "mu": np.array([0.0, 0.0]), "sigma": np.array([1.0, 1.0])},
-            1: {"prior": 0.5, "mu": np.array([1.0, 1.0]), "sigma": np.array([1.0, 1.0])}
-        }
-        self.trained = False
+        # ---------- STYLES ----------
+        self.setStyleSheet("""
+            QWidget {
+                background:#0f2027;
+                color:white;
+                font-family:Segoe UI;
+                font-size:16px;
+            }
+            QLabel { color:white; font-size:16px; }
+            QPushButton {
+                background:#1e2d37;
+                color:white;
+                padding:10px 18px;
+                border:1px solid #80fac0;
+                border-radius:8px;
+                font-size:15px;
+            }
+            QPushButton:hover {
+                background:#80fac0;
+                color:black;
+            }
+            QTextEdit {
+                background:#13232c;
+                border:1px solid #80fac0;
+                color:white;
+                font-size:14px;
+            }
+            QProgressBar {
+                border:1px solid #80fac0;
+                border-radius:8px;
+                text-align:center;
+                height:26px;
+                font-size:14px;
+            }
+            QProgressBar::chunk {
+                background:#80fac0;
+            }
+            QSpinBox {
+                font-size:15px;
+                padding:4px;
+            }
+            QCheckBox {
+                font-size:15px;
+            }
+        """)
 
-        # build UI
-        self._build_ui()
-        self._draw_all()
+        self.init_ui()
 
-    # ---------------- UI ----------------
-    def _build_ui(self):
-        layout = QVBoxLayout()
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+    # -----------------------------------------------------
+    def init_ui(self):
+        main = QVBoxLayout(self)
 
-        title = QLabel("Naive Bayes Visualizer (Gaussian, 2 features)")
-        title.setFont(QFont("Arial", 15, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
+        # ---------- TITLE ----------
+        title = QLabel("Naive Bayes – Email Spam / Ham Classifier")
+        title.setFont(QFont("Segoe UI", 26, QFont.Bold))
+        title.setStyleSheet("color:#80fac0;")
+        main.addWidget(title)
 
-        ctrl = QHBoxLayout()
-        ctrl.setSpacing(8)
+        # ---------- TOP BAR ----------
+        top = QHBoxLayout()
+        compute = QPushButton("▶ Compute")
+        reset = QPushButton("⟳ Reset")
+        back = QPushButton("⬅ Back to ML Algorithms")
 
-        self.class_select = QComboBox()
-        self.class_select.addItems(["Class 0", "Class 1"])
-        ctrl.addWidget(QLabel("Add point as:"))
-        ctrl.addWidget(self.class_select)
+        compute.clicked.connect(self.compute)
+        reset.clicked.connect(self.reset)
+        back.clicked.connect(self.close)
 
-        self.train_btn = QPushButton("Train")
-        self.train_btn.clicked.connect(self._train)
-        ctrl.addWidget(self.train_btn)
+        top.addWidget(compute)
+        top.addWidget(reset)
+        top.addStretch()
+        top.addWidget(back)
+        main.addLayout(top)
 
-        self.predict_btn = QPushButton("Predict Point")
-        self.predict_btn.clicked.connect(self._predict_from_inputs)
-        ctrl.addWidget(self.predict_btn)
+        # ---------- BODY ----------
+        body = QHBoxLayout()
 
-        ctrl.addWidget(QLabel("x:"))
-        self.x_input = QLineEdit(); self.x_input.setFixedWidth(80)
-        ctrl.addWidget(self.x_input)
-        ctrl.addWidget(QLabel("y:"))
-        self.y_input = QLineEdit(); self.y_input.setFixedWidth(80)
-        ctrl.addWidget(self.y_input)
+        # LEFT PANEL
+        left = QVBoxLayout()
 
-        self.back_btn = QPushButton("Back to ML Visualizer")
-        self.back_btn.clicked.connect(self._on_back)
-        ctrl.addWidget(self.back_btn)
+        left.addWidget(QLabel("Prior Probability"))
 
-        layout.addLayout(ctrl)
+        self.prior_label = QLabel("P(Spam) = 0.50  |  P(Ham) = 0.50")
+        self.prior_label.setFont(QFont("Segoe UI", 16))
+        left.addWidget(self.prior_label)
 
-        # plotting area: left main scatter, right two histograms stacked
-        self.figure = plt.figure(figsize=(10, 5))
-        # grid: left big axes, right top hist x, right bottom hist y
-        gs = self.figure.add_gridspec(2, 3)
-        self.ax_scatter = self.figure.add_subplot(gs[:, 0:2])
-        self.ax_hist_x = self.figure.add_subplot(gs[0, 2])
-        self.ax_hist_y = self.figure.add_subplot(gs[1, 2])
+        self.prior_slider = QSlider(Qt.Horizontal)
+        self.prior_slider.setRange(1, 99)
+        self.prior_slider.setValue(50)
+        self.prior_slider.valueChanged.connect(self.update_prior)
+        left.addWidget(self.prior_slider)
 
-        self.canvas = FigureCanvas(self.figure)
-        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        layout.addWidget(self.canvas)
+        left.addSpacing(20)
+        left.addWidget(QLabel("Word Counts (0 – 10)"))
 
-        # info label for priors and prediction
-        self.info_label = QLabel("")
-        self.info_label.setFont(QFont("Arial", 11))
-        layout.addWidget(self.info_label)
+        self.spins = {}
+        for word in ["free", "money", "meeting"]:
+            lbl = QLabel(f'Word "{word}"')
+            spin = QSpinBox()
+            spin.setRange(0, 10)
+            self.spins[word] = spin
+            left.addWidget(lbl)
+            left.addWidget(spin)
 
-        self.setLayout(layout)
+        self.laplace = QCheckBox("Enable Laplace Smoothing")
+        left.addWidget(self.laplace)
 
-        # mpl events
-        self.canvas.mpl_connect("button_press_event", self._on_click)
+        body.addLayout(left, 2)
 
-    # ---------------- demo data ----------------
-    def _init_demo_data(self):
-        # class 0 around (-2,0), class 1 around (3,2)
-        c0 = np.random.normal(loc=[-2.0, 0.0], scale=0.9, size=(70, 2))
-        c1 = np.random.normal(loc=[3.0, 2.0], scale=1.1, size=(70, 2))
-        pts = np.vstack([c0, c1])
-        labels = np.array([0] * len(c0) + [1] * len(c1))
-        self.data = [(float(x), float(y), int(lbl)) for (x, y), lbl in zip(pts, labels)]
+        # RIGHT PANEL
+        right = QVBoxLayout()
 
-    # ---------------- drawing ----------------
-    def _draw_all(self, highlight_point=None, posterior=None):
-        self.ax_scatter.clear()
-        self.ax_hist_x.clear()
-        self.ax_hist_y.clear()
+        self.log = QTextEdit()
+        self.log.setReadOnly(True)
+        right.addWidget(self.log, 2)
 
-        if not self.data:
-            self.ax_scatter.text(0.5, 0.5, "No data", ha="center")
-            self.canvas.draw()
-            return
+        self.result_label = QLabel("Prediction Result")
+        self.result_label.setFont(QFont("Segoe UI", 22, QFont.Bold))
+        self.result_label.setAlignment(Qt.AlignCenter)
+        self.result_label.setStyleSheet("color:#80fac0;")
+        right.addWidget(self.result_label)
 
-        pts = np.array([(x, y) for x, y, _ in self.data])
-        labels = np.array([l for _, _, l in self.data])
+        self.spam_bar = QProgressBar()
+        self.spam_bar.setMaximum(100)
+        right.addWidget(QLabel("P(Spam | Email)"))
+        right.addWidget(self.spam_bar)
 
-        colors = np.array(["#1f77b4", "#ff7f0e"])
-        for cls in [0, 1]:
-            mask = labels == cls
-            if mask.any():
-                self.ax_scatter.scatter(pts[mask, 0], pts[mask, 1], color=colors[cls], edgecolor="k", s=36, label=f"class {cls}")
+        self.ham_bar = QProgressBar()
+        self.ham_bar.setMaximum(100)
+        right.addWidget(QLabel("P(Ham | Email)"))
+        right.addWidget(self.ham_bar)
 
-        self.ax_scatter.set_title("Data scatter (click to add/remove points). Left-click to add with selected class; right-click to remove nearest.")
-        self.ax_scatter.grid(True)
-        self.ax_scatter.legend(loc="upper left")
+        body.addLayout(right, 3)
+        main.addLayout(body)
 
-        # plot model means if trained
-        if self.trained:
-            for cls in [0, 1]:
-                mu = self.model[cls]["mu"]
-                sigma = self.model[cls]["sigma"]
-                # mark mean
-                self.ax_scatter.scatter([mu[0]], [mu[1]], marker="X", s=120, color=colors[cls], edgecolor="k", zorder=5)
-                self.ax_scatter.text(mu[0], mu[1], f" mu{cls}", fontsize=9, verticalalignment="bottom")
+    # -----------------------------------------------------
+    def update_prior(self):
+        p = self.prior_slider.value() / 100
+        self.prior_label.setText(f"P(Spam) = {p:.2f}  |  P(Ham) = {1-p:.2f}")
 
-            # draw class-conditional ellipse approx using stds
-            for cls in [0, 1]:
-                mu = self.model[cls]["mu"]
-                sigma = self.model[cls]["sigma"]
-                # simple rectangle representing +/- 1 std
-                rect_x = [mu[0] - sigma[0], mu[0] + sigma[0], mu[0] + sigma[0], mu[0] - sigma[0], mu[0] - sigma[0]]
-                rect_y = [mu[1] - sigma[1], mu[1] - sigma[1], mu[1] + sigma[1], mu[1] + sigma[1], mu[1] - sigma[1]]
-                self.ax_scatter.plot(rect_x, rect_y, color=colors[cls], linestyle=":", linewidth=1.4, alpha=0.9)
+    # -----------------------------------------------------
+    def compute(self):
+        counts = {w: s.value() for w, s in self.spins.items()}
+        prior = self.prior_slider.value() / 100
 
-        # histograms for each feature with gaussian pdf overlay
-        all_x = pts[:, 0]
-        all_y = pts[:, 1]
-        # histogram bins
-        bins_x = 20
-        bins_y = 20
+        p_spam, p_ham, log = self.model.compute(
+            counts, prior, self.laplace.isChecked()
+        )
 
-        # plot per class hist and pdfs on ax_hist_x
-        for cls in [0, 1]:
-            mask = labels == cls
-            if mask.any():
-                data_x = pts[mask, 0]
-                self.ax_hist_x.hist(data_x, bins=bins_x, alpha=0.4, color=colors[cls], density=True, label=f"class {cls}")
+        self.log.setText(log)
 
-        if self.trained:
-            # overlay gaussian pdf on x
-            xs = np.linspace(all_x.min() - 1, all_x.max() + 1, 200)
-            for cls in [0, 1]:
-                mu = self.model[cls]["mu"][0]
-                sigma = self.model[cls]["sigma"][0]
-                pdf_vals = [gaussian_pdf(xx, mu, sigma) for xx in xs]
-                self.ax_hist_x.plot(xs, pdf_vals, color=colors[cls])
+        self.spam_bar.setValue(int(p_spam * 100))
+        self.ham_bar.setValue(int(p_ham * 100))
 
-        self.ax_hist_x.set_title("Feature x distribution")
-
-        # y histogram
-        for cls in [0, 1]:
-            mask = labels == cls
-            if mask.any():
-                data_y = pts[mask, 1]
-                self.ax_hist_y.hist(data_y, bins=bins_y, alpha=0.4, color=colors[cls], density=True, label=f"class {cls}")
-
-        if self.trained:
-            ys = np.linspace(all_y.min() - 1, all_y.max() + 1, 200)
-            for cls in [0, 1]:
-                mu = self.model[cls]["mu"][1]
-                sigma = self.model[cls]["sigma"][1]
-                pdf_vals = [gaussian_pdf(yy, mu, sigma) for yy in ys]
-                self.ax_hist_y.plot(ys, pdf_vals, color=colors[cls])
-
-        self.ax_hist_y.set_title("Feature y distribution")
-
-        # update info label
-        info_lines = []
-        pri0 = self.model[0]["prior"]
-        pri1 = self.model[1]["prior"]
-        info_lines.append(f"P(class0)={pri0:.3f}  P(class1)={pri1:.3f}")
-        if self.trained:
-            for cls in [0, 1]:
-                mu = self.model[cls]["mu"]
-                sigma = self.model[cls]["sigma"]
-                info_lines.append(f"class {cls}: mu=({mu[0]:.2f},{mu[1]:.2f})  sigma=({sigma[0]:.2f},{sigma[1]:.2f})")
-        self.info_label_set("\n".join(info_lines))
-
-        # if highlight point and posterior provided, show annotation
-        if highlight_point is not None:
-            hx, hy = highlight_point
-            self.ax_scatter.scatter([hx], [hy], s=140, facecolors='none', edgecolors='k', linewidths=2, zorder=6)
-            if posterior is not None:
-                text = f"P(class0)={posterior[0]:.3f}\nP(class1)={posterior[1]:.3f}\nPred: {np.argmax(posterior)}"
-                self.ax_scatter.text(hx, hy, text, fontsize=10, bbox=dict(facecolor='white', alpha=0.7), zorder=7)
-
-        self.figure.tight_layout()
-        self.canvas.draw()
-
-    def info_label_set(self, txt):
-        # small right-side multiline info label under canvas
-        self.info_label.setText(txt)
-
-    # ---------------- events ----------------
-    def _on_click(self, event):
-        # Add or remove points via click on scatter axes
-        if event.inaxes != self.ax_scatter:
-            return
-        x, y = event.xdata, event.ydata
-        if x is None or y is None:
-            return
-        if event.button == 1:  # left -> add with selected class
-            cls = 0 if self.class_select.currentIndex() == 0 else 1
-            self.data.append((float(x), float(y), cls))
-            # after adding, update visuals (do not auto-train unless user clicks Train)
-            self._draw_all()
-        elif event.button == 3:  # right -> remove nearest if close
-            idx = self._nearest_point_index(x, y, tol=0.4)
-            if idx is not None:
-                self.data.pop(idx)
-                self._draw_all()
-
-    def _nearest_point_index(self, x, y, tol=0.4):
-        if not self.data:
-            return None
-        pts = np.array([(p[0], p[1]) for p in self.data])
-        d = np.hypot(pts[:, 0] - x, pts[:, 1] - y)
-        m = d.min()
-        return int(d.argmin()) if m <= tol else None
-
-    # ---------------- training / prediction ----------------
-    def _train(self):
-        if not self.data:
-            QMessageBox.warning(self, "No data", "Add some data before training.")
-            return
-        arr = np.array(self.data)
-        X = arr[:, :2].astype(float)
-        Y = arr[:, 2].astype(int)
-        classes = np.unique(Y)
-        # compute priors and Gaussian stats
-        for cls in [0, 1]:
-            mask = Y == cls
-            if mask.sum() == 0:
-                # no points of that class, set defaults
-                self.model[cls]["prior"] = 1e-6
-                self.model[cls]["mu"] = np.array([0.0, 0.0])
-                self.model[cls]["sigma"] = np.array([1.0, 1.0])
-            else:
-                self.model[cls]["prior"] = float(mask.sum()) / float(len(Y))
-                xm = X[mask].mean(axis=0)
-                xs = X[mask].std(axis=0, ddof=0)
-                # avoid zero sigma
-                xs = np.where(xs < 1e-6, 1.0, xs)
-                self.model[cls]["mu"] = xm
-                self.model[cls]["sigma"] = xs
-        self.trained = True
-        self._draw_all()
-        QMessageBox.information(self, "Trained", "Gaussian Naive Bayes trained on current data.")
-
-    def _predict_from_inputs(self):
-        # take x,y from textboxes; if blank show warning
-        tx = self.x_input.text().strip()
-        ty = self.y_input.text().strip()
-        if tx == "" or ty == "":
-            QMessageBox.warning(self, "Input required", "Enter x and y coordinates or click on the plot.")
-            return
-        try:
-            x = float(tx); y = float(ty)
-        except ValueError:
-            QMessageBox.warning(self, "Invalid", "Coordinates must be numeric.")
-            return
-        posterior = self._posterior(np.array([x, y]))
-        self._draw_all(highlight_point=(x, y), posterior=posterior)
-
-    def _posterior(self, xy):
-        # returns normalized posterior P(class=k | xy) for k=0,1
-        if not self.trained:
-            # fallback simple equal priors and estimate objects
-            self._train()
-        post = []
-        for cls in [0, 1]:
-            prior = max(self.model[cls]["prior"], 1e-9)
-            mu = self.model[cls]["mu"]
-            sigma = self.model[cls]["sigma"]
-            # assume independence between features
-            p_x = gaussian_pdf(xy[0], mu[0], sigma[0])
-            p_y = gaussian_pdf(xy[1], mu[1], sigma[1])
-            likelihood = p_x * p_y
-            post.append(prior * likelihood)
-        s = sum(post)
-        if s <= 0:
-            # avoid zero normalization
-            post = [0.5, 0.5]
+        if p_spam > p_ham:
+            self.result_label.setText(f"📧 SPAM ({p_spam*100:.1f}% confidence)")
         else:
-            post = [p / s for p in post]
-        return post
+            self.result_label.setText(f"📩 HAM ({p_ham*100:.1f}% confidence)")
 
-    def _on_back(self):
-        self.close()
-        self.backToHomeSignal.emit()
+    # -----------------------------------------------------
+    def reset(self):
+        self.prior_slider.setValue(50)
+        for s in self.spins.values():
+            s.setValue(0)
+        self.log.clear()
+        self.spam_bar.setValue(0)
+        self.ham_bar.setValue(0)
+        self.result_label.setText("Prediction Result")
 
 
-# ---------------- standalone test ----------------
+# =========================================================
+# RUN
+# =========================================================
 if __name__ == "__main__":
-    import sys
-    from PyQt5.QtWidgets import QApplication
     app = QApplication(sys.argv)
     w = NaiveBayesVisualizer()
     w.show()

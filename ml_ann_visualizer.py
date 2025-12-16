@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QComboBox, QSlider
 )
-from PyQt5.QtCore import Qt, QTimer, QPointF
+from PyQt5.QtCore import Qt, QTimer, QPointF, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont
 
 
@@ -49,7 +49,6 @@ class NeuralNetwork:
         self.W3 = np.random.randn(self.h2, 1) * 0.6
         self.b3 = np.zeros((1, 1))
 
-    # ---- activations ----
     def act(self, x):
         if self.activation == "relu":
             return np.maximum(0, x)
@@ -154,7 +153,6 @@ class OutputView(QWidget):
         if self.losses:
             p.drawText(10,20,f"Training loss: {self.losses[-1]:.3f}")
 
-        # ---- EMA loss curve ----
         if len(self.losses) > 2:
             ema=[]
             a=0.15
@@ -167,18 +165,13 @@ class OutputView(QWidget):
                     QPointF(220+(i+1)*1.2,60-ema[i+1]*25)
                 )
 
-        # ---- decision surface ----
         offset = 80
         for i in range(0, w, 2):
             for j in range(offset, h, 2):
                 x = (i/w)*4 - 2
                 y = ((j-offset)/(h-offset))*4 - 2
                 prob = self.nn.forward(np.array([[x,y]]))[0][0]
-                if prob > 0.5:
-                    c = QColor(80, 130, 255)    # solid blue
-                else:
-                    c = QColor(255, 170, 60)    # solid orange
-
+                c = QColor(80,130,255) if prob > 0.5 else QColor(255,170,60)
                 p.setPen(c)
                 p.drawPoint(int(i), int(j))
 
@@ -192,68 +185,77 @@ class OutputView(QWidget):
 
 # ===================== MAIN APP =====================
 class ANNVisualizer(QMainWindow):
+    backToHomeSignal = pyqtSignal()
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ANN Visualizer")
         self.resize(1400,800)
 
-        self.nn=NeuralNetwork()
-        self.net=NetworkView(self.nn)
-        self.out=OutputView(self.nn)
+        self.nn = NeuralNetwork()
+        self.net = NetworkView(self.nn)
+        self.out = OutputView(self.nn)
 
-        self.timer=QTimer()
+        self.timer = QTimer()
         self.timer.timeout.connect(self.train_step)
 
-        self.patience=0
-        self.last_loss=None
+        self.patience = 0
+        self.last_loss = None
 
-        # ---- controls ----
-        start=QPushButton("▶ Start")
-        stop=QPushButton("⏹ Stop")
-        reset=QPushButton("⟳ Reset")
-
-        lr_slider=QSlider(Qt.Horizontal)
-        lr_slider.setRange(1,50)
-        lr_slider.setValue(15)
-        lr_label=QLabel("LR: 0.15")
-
-        act_box=QComboBox()
-        act_box.addItems(["tanh","relu","sigmoid"])
+        start = QPushButton("▶ Start")
+        stop = QPushButton("⏹ Stop")
+        reset = QPushButton("⟳ Reset")
+        back = QPushButton("⬅ Back to ML Algorithms")
 
         start.clicked.connect(lambda:self.timer.start(60))
         stop.clicked.connect(self.timer.stop)
         reset.clicked.connect(self.reset)
+        back.clicked.connect(self.go_back)
+
+        lr_slider = QSlider(Qt.Horizontal)
+        lr_slider.setRange(1,50)
+        lr_slider.setValue(15)
+        lr_label = QLabel("LR: 0.15")
+
+        act_box = QComboBox()
+        act_box.addItems(["tanh","relu","sigmoid"])
 
         lr_slider.valueChanged.connect(
-            lambda v:(setattr(self.nn,"lr",v/100),lr_label.setText(f"LR: {v/100:.2f}"))
+            lambda v:(setattr(self.nn,"lr",v/100),
+                      lr_label.setText(f"LR: {v/100:.2f}"))
         )
 
         act_box.currentTextChanged.connect(
             lambda a:(setattr(self.nn,"activation",a),self.reset())
         )
 
-        top=QHBoxLayout()
-        for w in (start,stop,reset,lr_label,lr_slider,QLabel("Activation:"),act_box):
+        top = QHBoxLayout()
+        for w in (start, stop, reset, back, lr_label, lr_slider,
+                  QLabel("Activation:"), act_box):
             top.addWidget(w)
 
-        center=QHBoxLayout()
+        center = QHBoxLayout()
         center.addWidget(self.net)
         center.addWidget(self.out,1)
 
-        lay=QVBoxLayout()
+        lay = QVBoxLayout()
         lay.addLayout(top)
         lay.addLayout(center)
 
-        c=QWidget()
+        c = QWidget()
         c.setLayout(lay)
         self.setCentralWidget(c)
 
-    def train_step(self):
-        loss=self.nn.train(self.out.X,self.out.y)
-        self.out.losses.append(loss)
-        self.out.losses=self.out.losses[-200:]
+    def go_back(self):
+        self.timer.stop()
+        self.close()
+        self.backToHomeSignal.emit()
 
-        # ---- early stopping ----
+    def train_step(self):
+        loss = self.nn.train(self.out.X,self.out.y)
+        self.out.losses.append(loss)
+        self.out.losses = self.out.losses[-200:]
+
         if self.last_loss and abs(self.last_loss-loss)<1e-4:
             self.patience+=1
             if self.patience>15:
@@ -264,7 +266,9 @@ class ANNVisualizer(QMainWindow):
 
         pred=(self.nn.forward(self.out.X)>0.5).astype(int).flatten()
         acc=(pred==self.out.y).mean()*100
-        self.setWindowTitle(f"ANN Visualizer | Loss: {loss:.3f} | Accuracy: {acc:.1f}%")
+        self.setWindowTitle(
+            f"ANN Visualizer | Loss: {loss:.3f} | Accuracy: {acc:.1f}%"
+        )
 
         self.net.update()
         self.out.update()
@@ -281,7 +285,7 @@ class ANNVisualizer(QMainWindow):
 
 # ===================== RUN =====================
 if __name__=="__main__":
-    app=QApplication(sys.argv)
-    win=ANNVisualizer()
+    app = QApplication(sys.argv)
+    win = ANNVisualizer()
     win.show()
     sys.exit(app.exec_())
