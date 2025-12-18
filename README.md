@@ -87,54 +87,173 @@ This project focuses on **learning by visualization**, making complex concepts i
    python main.py
    ```
 
-## Implemented Algorithms
+## 🧠 Implemented Algorithms
 
-### 1. Greedy Source Expansion
-A community detection algorithm that identifies local communities around a source node. It adds neighboring nodes that maximize local modularity to the community iteratively until no more gain is possible.
-- **Applications**: Social networks, clustering in graphs.
+AlgoQuest currently supports a wide range of **algorithm visualizations**, covering **core DSA topics** as well as **Machine Learning workflows**. Each algorithm is implemented as a separate visualizer module for clarity and extensibility.
 
 ---
 
-### 2. Minimum Spanning Tree (Kruskal’s and Prim’s Algorithms)
-Finds the minimum spanning tree (or forest) of a graph.
-- **Kruskal's Algorithm**: Adds edges in increasing order of weight, avoiding cycles.
-- **Prim's Algorithm**: Grows a single tree by adding the smallest edge that expands the tree.
+### 🔁 Sorting Algorithms
+Implemented in:
+- `sorting_visualizer.py`
+
+Algorithms visualized:
+- Bubble Sort
+- Selection Sort
+- Insertion Sort  
+(With step-by-step comparisons, swaps, and animated transitions)
 
 ---
 
-### 3. Double Edge Swap
-Maintains graph connectivity while performing random double-edge swaps to anonymize graphs effectively.
-- **Applications**: Privacy in graph datasets, random graph testing.
+### 🔍 Searching Algorithms
+Implemented in:
+- `search_visualizer.py`
+
+Algorithms visualized:
+- Linear Search
+- Binary Search  
+(Highlights comparisons and search boundaries dynamically)
 
 ---
 
-### 4. Bridge-Finding Algorithms
-Detects "bridges" (critical edges) in a graph. A bridge is an edge whose removal increases the number of disconnected components of the graph.
-- **Applications**: Network reliability, road networks.
+### 🌳 Graph Algorithms
+Implemented in:
+- `graph_visualizer.py`
+- `graph_traversal.py`
+
+Algorithms visualized:
+- Breadth First Search (BFS)
+- Depth First Search (DFS)
+
+Features:
+- Node-by-node traversal animation
+- Visited / unvisited state visualization
 
 ---
 
-### 5. Dominating Sets
-An approximation algorithm for finding connected dominating sets in a graph. This is used for problems like network coverage and routing in ad hoc networks.
-- **Algorithm**: Iteratively adds nodes to a dominating set by considering degrees of neighbors.
+### 🧮 Dynamic Programming
+Implemented in:
+- `dp_visualizer.py`
+
+Algorithms visualized:
+- Common DP problems with table-based visualization
+- Shows state transitions and optimal substructure clearly
 
 ---
 
-### 6. Sparsifiers
-Implements sparsification methods that reduce the number of edges in a graph while preserving its essential properties.
-- **Applications**: Faster graph operations, graph compression.
+### 🛣️ Shortest Path Algorithms
+Implemented in:
+- `shortest_path.py`
+
+Algorithms visualized:
+- Dijkstra’s Algorithm  
+(Shows distance updates and path relaxation process)
 
 ---
 
-### 7. Communicability
-Measures the ease of communication or flow of information between nodes using spectral graph theory.
-- **Applications**: Social network analysis, information flow studies.
+### 🌲 Minimum Spanning Tree (MST)
+Implemented in:
+- `mst_visualizer.py`
+
+Algorithms visualized:
+- Prim’s Algorithm
+- Kruskal’s Algorithm  
+(Edge selection and cycle detection are animated)
 
 ---
 
-### 8. Maximum Flow (Edmonds-Karp Algorithm)
-Uses the Edmonds-Karp method to calculate the maximum flow in a network graph. This is an important algorithm in graph algorithms, solving single-source-to-single-sink network flow problems.
-- **Applications**: Logistics, water distribution, telecommunications.
+### 🔗 Directed Acyclic Graph (DAG)
+Implemented in:
+- `dag_visualizer.py`
+
+Algorithms visualized:
+- Topological Sorting  
+(Shows dependency resolution visually)
+
+---
+
+## 🤖 Machine Learning Algorithm Visualizers
+
+### 🧠 Artificial Neural Network (ANN)
+Implemented in:
+- `ml_ann_visualizer.py`
+
+Features:
+- Input, hidden, and output layer visualization
+- Forward propagation
+- Loss calculation
+- Weight & bias updates during backpropagation
+
+---
+
+### 🌳 Decision Tree
+Implemented in:
+- `ml_decision_tree_visualizer.py`
+- Output example: `decision_tree_final.png`
+
+Features:
+- Tree structure visualization
+- Feature-based splitting
+- Decision paths highlighting
+
+---
+
+### 📊 Naive Bayes Classifier
+Implemented in:
+- `ml_naive_bayes_visualizer.py`
+
+Features:
+- Probability calculation steps
+- Class-wise likelihood visualization
+- Final prediction explanation
+
+---
+
+### 📈 Regression Algorithms
+Implemented in:
+- `ml_regression_visualizer.py`
+
+Algorithms visualized:
+- Linear Regression
+
+Features:
+- Line fitting process
+- Error / loss visualization
+
+---
+
+### 📌 K-Means Clustering
+Implemented in:
+- `ml_kmeans_visualizer.py`
+
+Features:
+- Cluster initialization
+- Iterative centroid updates
+- Data point re-assignment visualization
+
+---
+
+### 🧩 ML Workflow Controller
+Implemented in:
+- `ml_visualizer.py`
+
+Purpose:
+- Acts as a unified interface to launch and manage ML algorithm visualizations
+
+---
+
+## 🧠 Core Application Files
+
+- `main.py` → Entry point of the application
+- `neon_theme_qss.py` → Custom neon UI theme
+- `requirements.txt` → Project dependencies
+- `build/` & `dist/` → Packaged executable files
+- `main.spec` → PyInstaller configuration
+
+---
+
+📌 **Note:**  
+The modular design allows easy addition of new algorithms by simply creating a new visualizer file and registering it in `main.py`.
 
 ---
 
