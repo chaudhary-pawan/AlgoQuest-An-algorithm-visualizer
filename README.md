@@ -1,21 +1,69 @@
-# AlgoQuest: An Algorithm Visualizer
+# 🚀 AlgoQuest – An Interactive Algorithm Visualizer
 
-AlgoQuest is a comprehensive algorithm visualizer that provides insightful visuals and step-by-step breakdowns of various algorithms. The goal of this project is to make understanding complex algorithms easier and more intuitive.
+AlgoQuest is an **interactive algorithm visualization platform** designed to help students and beginners **understand how algorithms work internally** through real-time visual simulations.  
+Instead of just reading theory, users can *see* how data changes step-by-step during algorithm execution.
 
-## Table of Contents
-- [Features](#features)
-- [How to Use](#how-to-use)
-- [Implemented Algorithms](#implemented-algorithms)
-- [Contributing](#contributing)
-- [License](#license)
+This project focuses on **learning by visualization**, making complex concepts intuitive and engaging.
 
 ---
 
-## Features
+## ✨ Features
 
-- Supports visualization of a variety of graph-related algorithms.
-- Enables users to input custom graphs or use predefined examples.
-- Interactive features for pausing, rewinding, and customizing the visualization.
+### 🔢 Algorithm Visualizations
+- **Sorting Algorithms**
+  - Bubble Sort
+  - Selection Sort
+  - Insertion Sort
+  - (Extendable to Merge Sort, Quick Sort, etc.)
+- **Searching Algorithms**
+  - Linear Search
+  - Binary Search
+- **Machine Learning (Planned / In Progress)**
+  - K-Nearest Neighbors (KNN)
+  - Decision Tree
+  - Naive Bayes
+  - Neural Network Workflow Visualization
+
+---
+
+### 🎛️ Interactive Controls
+- Adjustable **input size**
+- **Speed control** for animations
+- Step-by-step execution
+- Real-time value and comparison highlights
+
+---
+
+### 📊 Educational Focus
+- Clear visualization of:
+  - Comparisons
+  - Swaps
+  - Traversals
+- Helps understand:
+  - Time complexity intuition
+  - Algorithm behavior on different inputs
+
+---
+
+## 🛠️ Tech Stack
+
+- **Python**
+- **PyQt5** – GUI development
+- **NumPy** – data handling
+- **Custom animation logic** for step-wise visualization
+
+---
+
+## 🎯 Learning Objectives
+
+- Understand algorithm flow visually
+
+- Bridge the gap between theory and execution
+
+- Build intuition for time & space complexity
+
+- Explore ML algorithm workflows interactively
+---
 
 ## How to Use
 
