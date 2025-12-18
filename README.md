@@ -36,7 +36,7 @@ AlgoQuest is a comprehensive algorithm visualizer that provides insightful visua
 
 4. Run the visualizer:
    ```bash
-   python app.py
+   python main.py
    ```
 
 ## Implemented Algorithms
